@@ -6,10 +6,6 @@ app = FastAPI()
 
 items = []
 
-@app.get("/")
-def read_hello():
-    return{"Hello": "Hi"}
-
 @app.post("/items")
 def create_item(item: str):
     items.append(item)
@@ -21,6 +17,11 @@ def get_item(item_id: int) -> str:
         return items[item_id]
     else:
         raise HTTPException(status_code = 404, detail=f"Item '{item_id}' not Found")
+
+@app.get("/items")
+def get_items():
+    return items
+
 
 
 
