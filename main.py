@@ -22,8 +22,3 @@ def get_item(item_id: int) -> str:
 def get_items():
     return items
 
-
-
-
-
-
