@@ -1,0 +1,319 @@
+from dotenv import load_dotenv
+import joblib
+import tldextract
+import numpy as np
+import requests
+import whois
+import ipaddress
+import math
+import os
+from datetime import datetime
+from urllib.parse import urlparse
+
+from base64 import urlsafe_b64encode
+import virustotal_python
+import diskcache as dc
+import pandas as pd
+
+
+# === CONFIGURATION ===
+load_dotenv(override=True)
+cache = dc.Cache('./cache')
+api_key = os.getenv("VT_API_KEY")
+MODEL_FILE = 'phishing_model.pkl'
+SCALER_FILE = 'scaler.pkl'
+DATASET_FILE = 'final_data.csv'
+LEGIT_DOMAINS_FILE = 'realDomains.txt'
+
+HIGH_RISK_TLDS = [
+    'xyz', 'top', 'club', 'site', 'online', 'rest', 'icu', 'work', 'click', 'fit', 'gq', 'tk', 'ml', 'cf', 'ga',
+    'men', 'loan', 'download', 'stream', 'party', 'cam', 'win', 'bid', 'review', 'trade', 'accountant', 'science',
+    'date', 'faith', 'racing', 'zip', 'cricket', 'host', 'press', 'space', 'pw', 'buzz', 'mom', 'bar', 'uno',
+    'kim', 'country', 'support', 'webcam', 'rocks', 'info', 'biz', 'pro', 'link', 'pics', 'help', 'ooo',
+    'asia', 'today', 'live', 'lol', 'surf', 'fun', 'run', 'cyou', 'monster', 'store'
+]
+
+# === HELPER FUNCTIONS ===
+def load_legit_domains(filepath):
+    try:
+        with open(filepath, 'r') as f:
+            return set(line.strip().lower().replace('https://', '').replace('http://', '') for line in f if line.strip())
+    except Exception:
+        return set()
+
+LEGIT_DOMAINS = load_legit_domains(LEGIT_DOMAINS_FILE)
+
+def is_legit_domain(domain):
+    return domain.lower() in LEGIT_DOMAINS
+
+def get_redirection_count(url):
+    count = 0
+    try:
+        for _ in range(5):
+            response = requests.head(url, allow_redirects=False, timeout=3, headers={'User-Agent': 'Mozilla/5.0'})
+            if 300 <= response.status_code < 400:
+                url = response.headers.get('Location', url)
+                count += 1
+            else:
+                break
+    except Exception:
+        pass
+    return count
+
+def is_using_cloudflare(url):
+    try:
+        response = requests.head(url, timeout=3)
+        headers = response.headers
+        return (
+            headers.get('Server', '').startswith('cloudflare') or
+            'CF-RAY' in headers or
+            'CF-Cache-Status' in headers
+        )
+    except:
+        return False
+
+def get_domain_age(domain):
+    try:
+        domain_info = whois.whois(domain)
+        creation_date = domain_info.creation_date
+        if isinstance(creation_date, list):
+            creation_date = creation_date[0]
+        return (datetime.now() - creation_date).days
+    except:
+        return None
+
+def is_ip_address(url):
+    try:
+        parsed = urlparse(url)
+        netloc = parsed.netloc.split(':')[0]
+        ipaddress.ip_address(netloc)
+        return True
+    except:
+        return False
+
+def cache_analysis_results(url, analysis_results):
+    cache[url] = analysis_results
+
+def get_cached_analysis_results(url):
+    return cache.get(url)
+
+def cache_virustotal_results(url, vt_results):
+    cache[f"vt_{url}"] = vt_results
+
+def get_cached_virustotal_results(url):
+    return cache.get(f"vt_{url}")
+
+def check_url_with_virustotal(url):
+    key = api_key or os.getenv("VT_API_KEY")
+    print("api got 1st")
+    if not key:
+        print("api got 2nd")
+        load_dotenv(override=True)
+        key = os.getenv("VT_API_KEY")
+    if not key:
+        return {"error": "VirusTotal API key not configured"}
+    with virustotal_python.Virustotal(key) as vtotal:
+        url_id = urlsafe_b64encode(url.encode()).decode().strip("=")
+        try:
+            report = vtotal.request(f"urls/{url_id}")
+            data = report.json()
+            if "data" in data:
+                stats = data["data"]["attributes"]["last_analysis_stats"]
+                return {
+                    "found": True,
+                    "malicious": stats.get("malicious", 0),
+                    "suspicious": stats.get("suspicious", 0),
+                    "total_scans": sum(stats.values()),
+                    "scan_date": data["data"]["attributes"].get("last_analysis_date")
+                }
+            else:
+                return {"found": False, "message": "URL not found in VirusTotal database"}
+        except Exception as e:
+            if hasattr(e, "response") and e.response is not None and e.response.status_code == 404:
+                return {"found": False, "message": "URL not found in VirusTotal database"}
+            else:
+                return {"error": str(e)}
+
+def extract_features(url):
+    parsed = urlparse(url)
+    domain = parsed.netloc.split(':')[0].replace('www.', '')
+    tld_extract = tldextract.extract(url)
+    domain_name = f"{tld_extract.domain}.{tld_extract.suffix}"
+
+    url_length = len(url)
+    n_slash = url.count('/')
+    n_questionmark = url.count('?')
+    n_equal = url.count('=')
+    n_at = url.count('@')
+    n_and = url.count('&')
+    n_exclamation = url.count('!')
+    n_asterisk = url.count('*')
+    n_hastag = url.count('#')
+    n_percent = url.count('%')
+    dots_per_length = url.count('.') / (url_length + 1)
+    hyphens_per_length = url.count('-') / (url_length + 1)
+    is_long_url = 1 if url_length > 200 else 0
+    has_many_dots = 1 if url.count('.') > 4 else 0
+    special_char_density = (
+        n_slash + n_questionmark + n_equal + n_at + n_and +
+        n_exclamation + n_asterisk + n_hastag + n_percent
+    ) / (url_length + 1)
+    has_ssl = 1 if url.startswith('https') else 0
+    is_cloudflare_protected = is_using_cloudflare(url)
+    suspicious_tld_risk = 1 if tld_extract.suffix in HIGH_RISK_TLDS else 0
+    n_redirection = get_redirection_count(url)
+    domain_age = get_domain_age(domain_name) or 0
+
+    risk_score = (
+        is_long_url * 2 +
+        has_many_dots * 1.5 +
+        special_char_density * 2 +
+        n_redirection * 3 -
+        has_ssl * 2 -
+        is_cloudflare_protected * 5 -
+        (domain_age / 365)
+    )
+
+    url_complexity = (
+        url_length * 0.01 +
+        n_slash * 0.5 +
+        n_questionmark * 0.7 +
+        n_equal * 0.7 +
+        n_at * 2
+    )
+
+    features = [
+        url_length, n_slash, n_questionmark, n_equal, n_at, n_and,
+        n_exclamation, n_asterisk, n_hastag, n_percent,
+        dots_per_length, hyphens_per_length, is_long_url, has_many_dots,
+        has_ssl, is_cloudflare_protected, special_char_density,
+        suspicious_tld_risk, n_redirection, risk_score, url_complexity
+    ]
+    return features, domain_name
+
+
+
+
+
+# === MAIN PROGRAM ===
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List
+import joblib
+import numpy as np
+import os
+import pandas as pd
+
+# === IMPORT YOUR EXISTING FUNCTIONS ===
+# extract_features, check_url_with_virustotal, etc.
+
+# === FASTAPI SETUP ===
+app = FastAPI(title="Phishing Detection API", version="1.0")
+
+# Load model and scaler globally
+MODEL_FILE = "phishing_model.pkl"
+SCALER_FILE = "scaler.pkl"
+DATASET_FILE = "./modelTraining/web-page-phishing.csv"
+if os.path.exists(DATASET_FILE):
+    dataset = pd.read_csv(DATASET_FILE)
+else:
+    dataset = pd.DataFrame()
+
+
+model = joblib.load(MODEL_FILE)
+scaler = joblib.load(SCALER_FILE)
+
+# Load dataset for info endpoint
+if os.path.exists(DATASET_FILE):
+    dataset = pd.read_csv(DATASET_FILE)
+else:
+    dataset = pd.DataFrame()
+
+# === DATA MODELS ===
+class URLItem(BaseModel):
+    url: str
+
+class BatchURLItem(BaseModel):
+    urls: List[str]
+
+# === API ENDPOINTS ===
+
+@app.post("/analyze")
+def analyze_url(item: URLItem):
+    try:
+        url = item.url
+        features, domain = extract_features(url)
+        scaled_features = scaler.transform([features])
+        prediction = model.predict(scaled_features)[0]
+        probabilities = model.predict_proba(scaled_features)[0]
+        confidence = float(np.max(probabilities))
+
+        # Check if domain is in the known legit list
+        is_legit = is_legit_domain(domain)
+
+        vt_results = check_url_with_virustotal(url)
+
+        # Decide verdict
+        if is_legit:
+            verdict = "Legitimate"
+            message = "Domain is known safe (realDomains list)."
+            confidence = 1.0  # Maximum confidence for known legit
+        elif prediction == 1:
+            verdict = "Phishing"
+            message = "Model detected phishing characteristics."
+        else:
+            verdict = "Legitimate"
+            message = "This URL appears legitimate."
+
+        return {
+            "url": url,
+            "domain": domain,
+            "found_in_real_domains": is_legit,
+            "confidence": confidence,
+            "verdict": verdict,
+            "message": message,
+            "virustotal": vt_results
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@app.post("/analyze/batch")
+def analyze_batch(item: BatchURLItem):
+    results = []
+    for url in item.urls:
+        results.append(analyze_url(URLItem(url=url)))
+    return {"results": results}
+
+
+@app.get("/model/info")
+def model_info():
+    return {
+        "model_file": MODEL_FILE,
+        "scaler_file": SCALER_FILE,
+        "version": "1.0",
+        "date_trained": "2025-11-12",
+        "algorithm": type(model).__name__,
+        "classes": model.classes_.tolist(),
+        "n_features": model.n_features_in_,
+    }
+
+
+@app.get("/dataset/info")
+def get_dataset_info():
+    if dataset.empty:
+        raise HTTPException(status_code=404, detail="shit was not found lol")
+
+    return {
+        "dataset_file": DATASET_FILE,
+        "num_samples": len(dataset),
+        "num_features": dataset.shape[1],  # all columns
+        "columns": dataset.columns.tolist()
+    }
+
+@app.get("/ping")
+def ping():
+    return "pong"
+
+
