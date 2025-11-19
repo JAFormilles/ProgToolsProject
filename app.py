@@ -21,7 +21,9 @@ api_key = os.getenv("VT_API_KEY")
 
 MODEL_FILE = 'phishing_model.pkl'
 SCALER_FILE = 'scaler.pkl'
-DATASET_FILE = "./data/final_data.csv"
+DATASET_FILE = "./modelTraining/web-page-phishing.csv"
+dataset = pd.read_csv(DATASET_FILE) if os.path.exists(DATASET_FILE) else pd.DataFrame()
+
 LEGIT_DOMAINS_FILE = 'realDomains.txt'
 
 HIGH_RISK_TLDS = [
@@ -164,7 +166,6 @@ def extract_features(url):
 # === LOAD MODEL AND DATASET ===
 model = joblib.load(MODEL_FILE)
 scaler = joblib.load(SCALER_FILE)
-dataset = pd.read_csv(DATASET_FILE)
 
 if os.path.exists(DATASET_FILE):
     dataset = pd.read_csv(DATASET_FILE)
