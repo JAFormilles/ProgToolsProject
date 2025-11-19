@@ -1,3 +1,4 @@
+import streamlit as st
 from dotenv import load_dotenv
 import joblib
 import tldextract
@@ -9,28 +10,27 @@ import math
 import os
 from datetime import datetime
 from urllib.parse import urlparse
-
 from base64 import urlsafe_b64encode
 import virustotal_python
 import diskcache as dc
 import pandas as pd
 
-
 # === CONFIGURATION ===
 load_dotenv(override=True)
 cache = dc.Cache('./cache')
 api_key = os.getenv("VT_API_KEY")
+
 MODEL_FILE = 'phishing_model.pkl'
 SCALER_FILE = 'scaler.pkl'
 DATASET_FILE = 'final_data.csv'
 LEGIT_DOMAINS_FILE = 'realDomains.txt'
 
 HIGH_RISK_TLDS = [
-    'xyz', 'top', 'club', 'site', 'online', 'rest', 'icu', 'work', 'click', 'fit', 'gq', 'tk', 'ml', 'cf', 'ga',
-    'men', 'loan', 'download', 'stream', 'party', 'cam', 'win', 'bid', 'review', 'trade', 'accountant', 'science',
-    'date', 'faith', 'racing', 'zip', 'cricket', 'host', 'press', 'space', 'pw', 'buzz', 'mom', 'bar', 'uno',
-    'kim', 'country', 'support', 'webcam', 'rocks', 'info', 'biz', 'pro', 'link', 'pics', 'help', 'ooo',
-    'asia', 'today', 'live', 'lol', 'surf', 'fun', 'run', 'cyou', 'monster', 'store'
+    'xyz','top','club','site','online','rest','icu','work','click','fit','gq','tk','ml','cf','ga',
+    'men','loan','download','stream','party','cam','win','bid','review','trade','accountant','science',
+    'date','faith','racing','zip','cricket','host','press','space','pw','buzz','mom','bar','uno',
+    'kim','country','support','webcam','rocks','info','biz','pro','link','pics','help','ooo',
+    'asia','today','live','lol','surf','fun','run','cyou','monster','store'
 ]
 
 # === HELPER FUNCTIONS ===
@@ -91,25 +91,8 @@ def is_ip_address(url):
     except:
         return False
 
-def cache_analysis_results(url, analysis_results):
-    cache[url] = analysis_results
-
-def get_cached_analysis_results(url):
-    return cache.get(url)
-
-def cache_virustotal_results(url, vt_results):
-    cache[f"vt_{url}"] = vt_results
-
-def get_cached_virustotal_results(url):
-    return cache.get(f"vt_{url}")
-
 def check_url_with_virustotal(url):
     key = api_key or os.getenv("VT_API_KEY")
-    print("api got 1st")
-    if not key:
-        print("api got 2nd")
-        load_dotenv(override=True)
-        key = os.getenv("VT_API_KEY")
     if not key:
         return {"error": "VirusTotal API key not configured"}
     with virustotal_python.Virustotal(key) as vtotal:
@@ -129,10 +112,7 @@ def check_url_with_virustotal(url):
             else:
                 return {"found": False, "message": "URL not found in VirusTotal database"}
         except Exception as e:
-            if hasattr(e, "response") and e.response is not None and e.response.status_code == 404:
-                return {"found": False, "message": "URL not found in VirusTotal database"}
-            else:
-                return {"error": str(e)}
+            return {"error": str(e)}
 
 def extract_features(url):
     parsed = urlparse(url)
@@ -191,73 +171,29 @@ def extract_features(url):
     ]
     return features, domain_name
 
-
-
-
-
-# === MAIN PROGRAM ===
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import List
-import joblib
-import numpy as np
-import os
-import pandas as pd
-
-# === IMPORT YOUR EXISTING FUNCTIONS ===
-# extract_features, check_url_with_virustotal, etc.
-
-# === FASTAPI SETUP ===
-app = FastAPI(title="Phishing Detection API", version="1.0")
-
-# Load model and scaler globally
-MODEL_FILE = "phishing_model.pkl"
-SCALER_FILE = "scaler.pkl"
-DATASET_FILE = "./modelTraining/web-page-phishing.csv"
-if os.path.exists(DATASET_FILE):
-    dataset = pd.read_csv(DATASET_FILE)
-else:
-    dataset = pd.DataFrame()
-
-
+# === LOAD MODEL AND SCALER ===
 model = joblib.load(MODEL_FILE)
 scaler = joblib.load(SCALER_FILE)
 
-# Load dataset for info endpoint
-if os.path.exists(DATASET_FILE):
-    dataset = pd.read_csv(DATASET_FILE)
-else:
-    dataset = pd.DataFrame()
+# === STREAMLIT UI ===
+st.title("Phishing URL Detection")
 
-# === DATA MODELS ===
-class URLItem(BaseModel):
-    url: str
+url_input = st.text_input("Enter a URL to analyze:")
 
-class BatchURLItem(BaseModel):
-    urls: List[str]
-
-# === API ENDPOINTS ===
-
-@app.post("/analyze")
-def analyze_url(item: URLItem):
-    try:
-        url = item.url
-        features, domain = extract_features(url)
+if st.button("Analyze URL") and url_input:
+    with st.spinner("Analyzing URL..."):
+        features, domain = extract_features(url_input)
         scaled_features = scaler.transform([features])
         prediction = model.predict(scaled_features)[0]
         probabilities = model.predict_proba(scaled_features)[0]
         confidence = float(np.max(probabilities))
-
-        # Check if domain is in the known legit list
         is_legit = is_legit_domain(domain)
+        vt_results = check_url_with_virustotal(url_input)
 
-        vt_results = check_url_with_virustotal(url)
-
-        # Decide verdict
         if is_legit:
             verdict = "Legitimate"
             message = "Domain is known safe (realDomains list)."
-            confidence = 1.0  # Maximum confidence for known legit
+            confidence = 1.0
         elif prediction == 1:
             verdict = "Phishing"
             message = "Model detected phishing characteristics."
@@ -265,55 +201,13 @@ def analyze_url(item: URLItem):
             verdict = "Legitimate"
             message = "This URL appears legitimate."
 
-        return {
-            "url": url,
-            "domain": domain,
-            "found_in_real_domains": is_legit,
-            "confidence": confidence,
-            "verdict": verdict,
-            "message": message,
-            "virustotal": vt_results
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-
-@app.post("/analyze/batch")
-def analyze_batch(item: BatchURLItem):
-    results = []
-    for url in item.urls:
-        results.append(analyze_url(URLItem(url=url)))
-    return {"results": results}
-
-
-@app.get("/model/info")
-def model_info():
-    return {
-        "model_file": MODEL_FILE,
-        "scaler_file": SCALER_FILE,
-        "version": "1.0",
-        "date_trained": "2025-11-12",
-        "algorithm": type(model).__name__,
-        "classes": model.classes_.tolist(),
-        "n_features": model.n_features_in_,
-    }
-
-
-@app.get("/dataset/info")
-def get_dataset_info():
-    if dataset.empty:
-        raise HTTPException(status_code=404, detail="shit was not found lol")
-
-    return {
-        "dataset_file": DATASET_FILE,
-        "num_samples": len(dataset),
-        "num_features": dataset.shape[1],  # all columns
-        "columns": dataset.columns.tolist()
-    }
-
-@app.get("/ping")
-def ping():
-    return "pong"
+        st.write("### Results")
+        st.write(f"**URL:** {url_input}")
+        st.write(f"**Domain:** {domain}")
+        st.write(f"**Verdict:** {verdict}")
+        st.write(f"**Confidence:** {confidence:.2f}")
+        st.write(f"**Message:** {message}")
+        st.write("**VirusTotal Results:**")
+        st.json(vt_results)
 
 
