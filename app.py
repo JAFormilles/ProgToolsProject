@@ -6,7 +6,6 @@ import numpy as np
 import requests
 import whois
 import ipaddress
-import math
 import os
 from datetime import datetime
 from urllib.parse import urlparse
@@ -16,7 +15,7 @@ import diskcache as dc
 import pandas as pd
 
 # === CONFIGURATION ===
-load_dotenv(override=True)
+load_dotenv(override=True)  # Load .env first
 cache = dc.Cache('./cache')
 api_key = os.getenv("VT_API_KEY")
 
@@ -82,22 +81,13 @@ def get_domain_age(domain):
     except:
         return None
 
-def is_ip_address(url):
-    try:
-        parsed = urlparse(url)
-        netloc = parsed.netloc.split(':')[0]
-        ipaddress.ip_address(netloc)
-        return True
-    except:
-        return False
-
 def check_url_with_virustotal(url):
     key = api_key or os.getenv("VT_API_KEY")
     if not key:
         return {"error": "VirusTotal API key not configured"}
-    with virustotal_python.Virustotal(key) as vtotal:
-        url_id = urlsafe_b64encode(url.encode()).decode().strip("=")
-        try:
+    try:
+        with virustotal_python.Virustotal(key) as vtotal:
+            url_id = urlsafe_b64encode(url.encode()).decode().strip("=")
             report = vtotal.request(f"urls/{url_id}")
             data = report.json()
             if "data" in data:
@@ -111,8 +101,8 @@ def check_url_with_virustotal(url):
                 }
             else:
                 return {"found": False, "message": "URL not found in VirusTotal database"}
-        except Exception as e:
-            return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}
 
 def extract_features(url):
     parsed = urlparse(url)
@@ -171,43 +161,106 @@ def extract_features(url):
     ]
     return features, domain_name
 
-# === LOAD MODEL AND SCALER ===
+# === LOAD MODEL AND DATASET ===
 model = joblib.load(MODEL_FILE)
 scaler = joblib.load(SCALER_FILE)
 
-# === STREAMLIT UI ===
-st.title("Phishing URL Detection")
+if os.path.exists(DATASET_FILE):
+    dataset = pd.read_csv(DATASET_FILE)
+else:
+    dataset = pd.DataFrame()
 
-url_input = st.text_input("Enter a URL to analyze:")
+# === STREAMLIT APP ===
+st.title("Phishing URL Detection App")
 
-if st.button("Analyze URL") and url_input:
-    with st.spinner("Analyzing URL..."):
-        features, domain = extract_features(url_input)
-        scaled_features = scaler.transform([features])
-        prediction = model.predict(scaled_features)[0]
-        probabilities = model.predict_proba(scaled_features)[0]
-        confidence = float(np.max(probabilities))
-        is_legit = is_legit_domain(domain)
-        vt_results = check_url_with_virustotal(url_input)
+tab1, tab2, tab3, tab4 = st.tabs(["Single URL", "Batch URLs", "Model Info", "Dataset Info"])
 
-        if is_legit:
-            verdict = "Legitimate"
-            message = "Domain is known safe (realDomains list)."
-            confidence = 1.0
-        elif prediction == 1:
-            verdict = "Phishing"
-            message = "Model detected phishing characteristics."
-        else:
-            verdict = "Legitimate"
-            message = "This URL appears legitimate."
+# --- Single URL Analysis ---
+with tab1:
+    url_input = st.text_input("Enter a URL to analyze:")
+    if st.button("Analyze URL") and url_input:
+        with st.spinner("Analyzing URL..."):
+            features, domain = extract_features(url_input)
+            scaled_features = scaler.transform([features])
+            prediction = model.predict(scaled_features)[0]
+            probabilities = model.predict_proba(scaled_features)[0]
+            confidence = float(np.max(probabilities))
+            is_legit = is_legit_domain(domain)
+            vt_results = check_url_with_virustotal(url_input)
 
-        st.write("### Results")
-        st.write(f"**URL:** {url_input}")
-        st.write(f"**Domain:** {domain}")
-        st.write(f"**Verdict:** {verdict}")
-        st.write(f"**Confidence:** {confidence:.2f}")
-        st.write(f"**Message:** {message}")
-        st.write("**VirusTotal Results:**")
-        st.json(vt_results)
+            if is_legit:
+                verdict = "Legitimate"
+                message = "Domain is known safe (realDomains list)."
+                confidence = 1.0
+            elif prediction == 1:
+                verdict = "Phishing"
+                message = "Model detected phishing characteristics."
+            else:
+                verdict = "Legitimate"
+                message = "This URL appears legitimate."
 
+            st.write("### Results")
+            st.write(f"**URL:** {url_input}")
+            st.write(f"**Domain:** {domain}")
+            st.write(f"**Verdict:** {verdict}")
+            st.write(f"**Confidence:** {confidence:.2f}")
+            st.write(f"**Message:** {message}")
+            st.write("**VirusTotal Results:**")
+            st.json(vt_results)
 
+# --- Batch URL Analysis ---
+with tab2:
+    batch_input = st.text_area("Enter multiple URLs (one per line):")
+    if st.button("Analyze Batch URLs") and batch_input:
+        urls = [line.strip() for line in batch_input.splitlines() if line.strip()]
+        results = []
+        with st.spinner("Analyzing batch URLs..."):
+            for url in urls:
+                features, domain = extract_features(url)
+                scaled_features = scaler.transform([features])
+                prediction = model.predict(scaled_features)[0]
+                probabilities = model.predict_proba(scaled_features)[0]
+                confidence = float(np.max(probabilities))
+                is_legit = is_legit_domain(domain)
+                vt_results = check_url_with_virustotal(url)
+
+                if is_legit:
+                    verdict = "Legitimate"
+                    message = "Domain is known safe (realDomains list)."
+                    confidence = 1.0
+                elif prediction == 1:
+                    verdict = "Phishing"
+                    message = "Model detected phishing characteristics."
+                else:
+                    verdict = "Legitimate"
+                    message = "This URL appears legitimate."
+
+                results.append({
+                    "URL": url,
+                    "Domain": domain,
+                    "Verdict": verdict,
+                    "Confidence": confidence,
+                    "Message": message,
+                    "VirusTotal": vt_results
+                })
+            st.dataframe(pd.DataFrame(results))
+
+# --- Model Info ---
+with tab3:
+    st.write("### Model Information")
+    st.write(f"Model file: {MODEL_FILE}")
+    st.write(f"Scaler file: {SCALER_FILE}")
+    st.write(f"Algorithm: {type(model).__name__}")
+    st.write(f"Number of features: {model.n_features_in_}")
+    st.write(f"Classes: {model.classes_.tolist()}")
+
+# --- Dataset Info ---
+with tab4:
+    st.write("### Dataset Information")
+    if dataset.empty:
+        st.write("Dataset not found or empty")
+    else:
+        st.write(f"Dataset file: {DATASET_FILE}")
+        st.write(f"Number of samples: {len(dataset)}")
+        st.write(f"Number of features: {dataset.shape[1]}")
+        st.write(f"Columns: {dataset.columns.tolist()}")
