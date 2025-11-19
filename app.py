@@ -15,7 +15,7 @@ import diskcache as dc
 import pandas as pd
 
 # === CONFIGURATION ===
-load_dotenv(override=True)  # Load .env first
+load_dotenv(override=True)
 cache = dc.Cache('./cache')
 api_key = os.getenv("VT_API_KEY")
 
