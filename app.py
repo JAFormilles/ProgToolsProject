@@ -164,6 +164,7 @@ def extract_features(url):
 # === LOAD MODEL AND DATASET ===
 model = joblib.load(MODEL_FILE)
 scaler = joblib.load(SCALER_FILE)
+dataset = pd.read_csv(DATASET_FILE)
 
 if os.path.exists(DATASET_FILE):
     dataset = pd.read_csv(DATASET_FILE)
