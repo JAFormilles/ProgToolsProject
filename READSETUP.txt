@@ -1,0 +1,15 @@
+py -3.12 -m venv venv
+.\venv\Scripts\Activate.ps1
+
+pip install --upgrade pip
+pip install -r requirements.txt
+
+VT_API_KEY=api key here (.env is using mine)
+
+set interpreter directory to project venv/script/python.exe
+
+to run, in terminal:
+streamlit run app.py
+
+or just run in PyCharm.
+
