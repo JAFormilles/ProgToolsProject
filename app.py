@@ -21,7 +21,7 @@ api_key = os.getenv("VT_API_KEY")
 
 MODEL_FILE = 'phishing_model.pkl'
 SCALER_FILE = 'scaler.pkl'
-DATASET_FILE = "./modelTraining/web-page-phishing.csv"
+DATASET_FILE = "./modelTraining/final_data.csv"
 dataset = pd.read_csv(DATASET_FILE) if os.path.exists(DATASET_FILE) else pd.DataFrame()
 
 LEGIT_DOMAINS_FILE = 'realDomains.txt'
