@@ -21,7 +21,7 @@ api_key = os.getenv("VT_API_KEY")
 
 MODEL_FILE = 'phishing_model.pkl'
 SCALER_FILE = 'scaler.pkl'
-DATASET_FILE = './data/final_data.csv'
+DATASET_FILE = "./data/final_data.csv"
 LEGIT_DOMAINS_FILE = 'realDomains.txt'
 
 HIGH_RISK_TLDS = [
