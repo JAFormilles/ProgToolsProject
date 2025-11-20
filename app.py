@@ -143,17 +143,27 @@ def check_url_with_virustotal(url):
             report = vtotal.request(f"urls/{url_id}")
             data = report.json()
             if "data" in data:
-                stats = data["data"]["attributes"]["last_analysis_stats"]
+                attrs = data["data"]["attributes"]
+                stats = attrs["last_analysis_stats"]
+
+                # Convert scan date (Unix timestamp) → readable
+                ts = attrs.get("last_analysis_date")
+                readable_date = None
+                if ts:
+                    readable_date = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S UTC")
+
                 return {
                     "found": True,
                     "malicious": stats.get("malicious", 0),
                     "suspicious": stats.get("suspicious", 0),
                     "total_scans": sum(stats.values()),
-                    "scan_date": data["data"]["attributes"].get("last_analysis_date")
+                    "scan_date": ts,
+                    "scan_date_readable": readable_date
                 }
             return {"found": False, "message": "URL not found in VirusTotal database"}
     except Exception as e:
         return {"error": str(e)}
+
 
 def extract_features(url):
     parsed = urlparse(url)
