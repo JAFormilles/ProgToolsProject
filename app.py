@@ -364,4 +364,4 @@ with tab5:
 
 # Footer
 st.markdown("<footer>No personal data is stored beyond submitted URLs. "
-            "Powered by Streamlit + FastAPI</footer>", unsafe_allow_html=True)
+            "Powered by Streamlit</footer>", unsafe_allow_html=True)
