@@ -357,9 +357,9 @@ with tab5:
 **Phish Checker — A Machine Learning–Powered URL Security Analyzer**
 
 **Contributors**
-- **J.E. Formilles** – Project Lead, Model Development, Backend Integration  
-- **J.C. Ronquillo** – Feature Engineering, System Architecture  
-- **A.R. Advincula** – Frontend, UI/UX, Streamlit Application
+- **J.E. Formilles** – Model Training, Backend  
+- **J.C. Ronquillo** – FrontEnd, BackEnd, Deployment
+- **A.R. Advincula** – FrontEnd, BackEnd, Deployment 
 
 **Technologies & Tools**
 - **Machine Learning:** scikit-learn, joblib  
