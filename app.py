@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse
 app = FastAPI(title="Phish Checker API")
 load_dotenv(override=True)
 cache = dc.Cache('./cache')
-api_key = os.getenv("VT_API_KEY")
+api_key = st.secrets.get("VT_API_KEY", os.getenv("VT_API_KEY"))
 
 MODEL_FILE = 'phishing_model.pkl'
 SCALER_FILE = 'scaler.pkl'
