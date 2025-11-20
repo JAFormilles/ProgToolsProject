@@ -354,12 +354,26 @@ with tab5:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.header("Credits")
     st.markdown("""
-    **Phish Checker**  
-    - Built by JEFormilles, JCRonquillo, ARAdvincula  
-    - Libraries: Streamlit, scikit-learn, joblib, pandas, requests, tldextract, whois  
-    - Threat intelligence: VirusTotal API  
-    - Cache: diskcache  
-    """)
+**Phish Checker — A Machine Learning–Powered URL Security Analyzer**
+
+**Contributors**
+- **J.E. Formilles** – Project Lead, Model Development, Backend Integration  
+- **J.C. Ronquillo** – Feature Engineering, System Architecture  
+- **A.R. Advincula** – Frontend, UI/UX, Streamlit Application
+
+**Technologies & Tools**
+- **Machine Learning:** scikit-learn, joblib  
+- **Data Processing:** pandas, NumPy  
+- **Security & Threat Intelligence:** VirusTotal API, python-whois, tldextract  
+- **Web Platform:** Streamlit  
+- **Caching:** diskcache  
+- **Backend API (local use):** FastAPI
+
+**Project Purpose**
+Phish Checker is designed to help users identify suspicious or phishing URLs  
+using ML-based predictions, domain intelligence, and real-time VirusTotal lookups.
+
+""")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # Footer
